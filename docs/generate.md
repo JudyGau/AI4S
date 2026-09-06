@@ -38,6 +38,12 @@ python -m scripts.generate --multiturn --n 300
 python -m scripts.generate --multiturn --llm --llm-base-url http://127.0.0.1:8000/v1 --llm-model Qwen-7B --llm-api-key sk-xxx --n 300
 ```
 
+> **便捷脚本**：`python -m scripts.generate_llm --n 100` 已预置调试好的 LLM 多轮链
+> 参数（`--multiturn --llm --llm-relaxed` ＋ 深度 4–6 ＋ 至多 8 轮）。它复用同一套表达式
+> 管线，仅暴露常用开关（`--n --out --seed --dim --min-depth --max-depth-limit
+> --llm-max-rounds --llm-relaxed-floor --llm-relaxed-gain --no-fallback`），
+> llm base_url/model/key 优先取命令行、其次 `.env`/环境变量。
+
 ## 参数说明
 
 | 参数 | 类型 | 默认 | 说明 |
