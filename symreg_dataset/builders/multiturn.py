@@ -36,8 +36,61 @@ def _num_quality(txt: str, true_expr, rows, var_symbols) -> float:
     return reward.compute_reward(txt, true_expr, var_mat, ref_ys, var_symbols)["num"]
 
 
+def _pick_template_hypothesis(true_expr, rows, cfg: GenerationConfig,
+                              rng: random.Random, var_symbols,
+                              final_txt: str) -> str | None:
+    """模板近邻法选中间假设：结构近邻 + 数值质量区间内取 num 最高者。"""
+    target_num = _num_quality(final_txt, true_expr, rows, var_symbols)
+    upper = target_num - max(0.015, 0.05 * target_num)  # ≈目标的候选不算假设
+    floor = max(0.02, 0.25 * target_num)                # 低于此视为乱猜
+
+    best = None                    # (num, txt)：区间内的最优近邻
+    seen = set()
+    for _ in range(100):
+        cand = _perturb(true_expr, rng, keep_close=True)
+        txt = expr_text(cand, cfg.precision)
+        if txt == final_txt or txt in seen:
+            continue
+        seen.add(txt)
+        cand_num = _num_quality(txt, true_expr, rows, var_symbols)
+        if cand_num < floor or cand_num >= upper:
+            continue
+        if best is None or cand_num > best[0]:
+            best = (cand_num, txt)
+    return best[1] if best else None
+
+
+def _template_chain(problem: str, true_expr, rows, rng: random.Random,
+                    var_symbols, final_txt: str, cfg: GenerationConfig):
+    """模板路径构造 4 段链；取不到合理假设返回 None。"""
+    hypo_txt = _pick_template_hypothesis(true_expr, rows, cfg, rng,
+                                         var_symbols, final_txt)
+    if hypo_txt is None:
+        return None
+    return [
+        human(problem),
+        gpt(instructions.analysis_and_hypothesis(hypo_txt, rng)),
+        human(instructions.feedback_turn(rng)),
+        gpt(final_txt),  # 收敛到正确表达式
+    ]
+
+
 def build_multiturn_items(expressions, cfg: GenerationConfig,
                           seed: int = 0) -> list[dict]:
+    """多轮链构造。`cfg.use_llm` 且配置齐全时走 LLM 真对话；否则/失败回退模板。"""
+    if cfg.use_llm:
+        from ..llm import build_multiturn_llm_items
+        # 配置缺失或 API 调用异常时按需回退模板，保证离线可跑
+        try:
+            return build_multiturn_llm_items(
+                expressions, cfg, seed=seed,
+                fallback=_template_chain if cfg.llm_fallback else None,
+            )
+        except Exception:
+            if not cfg.llm_fallback:
+                raise
+            # 配置失败：静默退回模板路径
+
     rng = random.Random(cfg.seed + seed)
     var_symbols = make_var_symbols(cfg)
     items = []
@@ -45,35 +98,10 @@ def build_multiturn_items(expressions, cfg: GenerationConfig,
         rows = sample_rows(true_expr, cfg, var_symbols, seed=cfg.seed + i)
         problem = instructions.sft_instruction(rows, cfg.dim, rng, cfg.precision)
         final_txt = expr_text(true_expr, cfg.precision)
-
-        target_num = _num_quality(final_txt, true_expr, rows, var_symbols)
-        upper = target_num - max(0.015, 0.05 * target_num)  # ≈目标的候选不算假设
-        floor = max(0.02, 0.25 * target_num)                # 低于此视为乱猜
-
-        best = None                    # (num, txt)：区间内的最优近邻
-        seen = set()
-        for _ in range(100):
-            cand = _perturb(true_expr, rng, keep_close=True)
-            txt = expr_text(cand, cfg.precision)
-            if txt == final_txt or txt in seen:
-                continue
-            seen.add(txt)
-            cand_num = _num_quality(txt, true_expr, rows, var_symbols)
-            if cand_num < floor or cand_num >= upper:
-                continue
-            if best is None or cand_num > best[0]:
-                best = (cand_num, txt)
-
-        if best is None:
+        conversations = _template_chain(problem, true_expr, rows, rng,
+                                        var_symbols, final_txt, cfg)
+        if conversations is None:
             continue  # 连合理假设都取不到，跳过该样本（不满足训练质量的未生成）
-        hypo_txt = best[1]
-
-        conversations = [
-            human(problem),
-            gpt(instructions.analysis_and_hypothesis(hypo_txt, rng)),
-            human(instructions.feedback_turn(rng)),
-            gpt(final_txt),  # 收敛到正确表达式
-        ]
         item = make_multiturn_item(
             conversations, reference=reference_meta(true_expr, cfg, var_symbols),
             system=cfg.system,

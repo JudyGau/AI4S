@@ -8,6 +8,7 @@
 - **Form-GRPO** 强化学习：问题式输入 + reference/data（供奖励函数打分）
 - **DPO** 偏好对齐：同一指令下 `chosen`（正确）/ `rejected`（扰动负样本）
 - **多轮（multiturn）** 综合分析链：`分析+中间假设 -> 反馈 -> 收敛到正确表达式`
+- **LLM 多轮（`--multiturn --llm`）**：用 OpenAI 兼容 API 真对话产出分析/假设/依反馈修正链，`reward` 奖励门控收敛，失败自动回退模板
 
 ## 特性
 - 树式随机生成一/多元数学表达式（SymPy），支持算子/终结符结构约束。
@@ -33,6 +34,11 @@ python -m scripts.generate --sft --dpo --n 500 --dim 2 --noise 0.05 --out data
 
 # 仅多轮综合分析链
 python -m scripts.generate --multiturn --n 300
+
+# 多轮改走 LLM 真对话（OpenAI 兼容 API，失败自动回退模板）
+python -m scripts.generate --multiturn --llm \
+  --llm-base-url https://api.deepseek.com/v1 --llm-model deepseek-chat \
+  --llm-api-key $env:OPENAI_API_KEY --n 300
 ```
 
 输出文件：`data/{sft,grpo,dpo,multiturn}_{train,test}.jsonl`

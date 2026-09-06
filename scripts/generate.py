@@ -10,6 +10,24 @@ import argparse
 import os
 import random
 
+
+def _parse_extra_body(text: str) -> dict | None:
+    """解析 `--llm-extra-body` / LLM_EXTRA_BODY 的 JSON；空、非法返回 None。
+
+    例：{"thinking":{"type":"enabled","budget_tokens":256}}
+    """
+    if not text:
+        return None
+    try:
+        import json
+        val = json.loads(text)
+        return val if isinstance(val, dict) else None
+    except ValueError:
+        import warnings
+        warnings.warn("LLM_EXTRA_BODY 不是合法 JSON 对象，已忽略")
+        return None
+
+
 import sympy as sp
 
 from symreg_dataset.config import GenerationConfig
@@ -86,7 +104,26 @@ def build_all(train, test, cfg: GenerationConfig):
     return out
 
 
+def _load_dotenv(path=".env"):
+    """零依赖地读取工作目录下 `path`（如 .env）填充 os.environ，不覆盖已存在的值。"""
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip().lstrip("\ufeff")  # 容忍文件开头可能的 UTF-8 BOM
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key, val = key.strip(), val.strip().strip("'\"")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+    except OSError:
+        pass
+
+
 def main(argv=None):
+    _load_dotenv()
     p = argparse.ArgumentParser(description="symbolic regression post-training dataset builder")
     p.add_argument("--sft", action="store_true", dest="sft_set")
     p.add_argument("--grpo", action="store_true", dest="grpo_set")
@@ -105,6 +142,32 @@ def main(argv=None):
     p.add_argument("--test-ratio", type=float, default=0.1)
     p.add_argument("--min-depth", type=int, default=4)
     p.add_argument("--max-depth-limit", type=int, default=12)
+    # LLM 多轮对话（需配合 --multiturn）；base_url/model/key 优先取 CLI，其次 .env/环境变量
+    p.add_argument("--llm", action="store_true", dest="use_llm",
+                   help="(多轮) 用 LLM 真对话生成多轮链，需配合 --multiturn")
+    p.add_argument("--llm-base-url", default=os.environ.get("LLM_BASE_URL", ""))
+    p.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", ""))
+    p.add_argument("--llm-api-key", default=os.environ.get("OPENAI_API_KEY", ""))
+    p.add_argument("--llm-max-rounds", type=int,
+                   default=int(os.environ.get("LLM_MAX_ROUNDS", 5)))
+    p.add_argument("--llm-max-tokens", type=int,
+                   default=int(os.environ.get("LLM_MAX_TOKENS", 1024)),
+                   help="单次回答 token 上限；推理模型（如 glm-flash）思考链很长时建议提到 4096")
+    p.add_argument("--llm-extra-body", default=os.environ.get("LLM_EXTRA_BODY", ""),
+                   help="追加到请求体的 JSON（如 GLM 思考强度参数），例如 "
+                        '{"thinking":{"type":"enabled","budget_tokens":256}}')
+    p.add_argument("--llm-no-fallback", action="store_true",
+                   help="LLM 链失败时不回退模板（默认失败自动回退）")
+    p.add_argument("--llm-relaxed", action="store_true",
+                   help="放宽收敛：模型无法精确符号回归时，以'最佳改进拟合'作为末轮答案，而"
+                        "非强制等于真值；需配合 --multiturn --llm 使用")
+    p.add_argument("--llm-relaxed-floor", type=float, default=0.4,
+                   help="放宽模式下末轮最佳拟合须达到的数值质量下限（默认 0.4）")
+    p.add_argument("--llm-relaxed-gain", type=float, default=0.05,
+                   help="放宽模式下末轮须比首轮假设提升的数值增量（默认 0.05）")
+    p.add_argument("--llm-max-workers", type=int,
+                   default=int(os.environ.get("LLM_MAX_WORKERS", 1)),
+                   help="LLM 多轮生成并发目标数（>1 用线程池，提吞吐，需 API 支持并发；默认 1）")
     args = p.parse_args(argv)
 
     cfg = GenerationConfig(
@@ -117,6 +180,19 @@ def main(argv=None):
         n_per_group=args.n_per_group, noise=args.noise,
         min_depth=args.min_depth, max_depth_limit=args.max_depth_limit,
         test_ratio=args.test_ratio, seed=args.seed, out_dir=args.out,
+        use_llm=args.use_llm,
+        llm_base_url=args.llm_base_url,
+        llm_api_key=args.llm_api_key,
+        llm_model=args.llm_model,
+        llm_max_rounds=args.llm_max_rounds,
+        llm_max_tokens=args.llm_max_tokens,
+        llm_extra_body=_parse_extra_body(args.llm_extra_body),
+        llm_fallback=(not args.llm_no_fallback
+                      and os.environ.get("LLM_FALLBACK", "1") != "0"),
+        llm_relaxed=args.llm_relaxed,
+        llm_relaxed_floor=args.llm_relaxed_floor,
+        llm_relaxed_gain=args.llm_relaxed_gain,
+        llm_max_workers=args.llm_max_workers,
     )
 
     rng = random.Random(cfg.seed)

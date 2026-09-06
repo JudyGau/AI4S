@@ -18,9 +18,15 @@ def _extract_hypo(convs) -> str | None:
 
 
 def test_multiturn_four_segments_and_converges():
-    e = expressions.random_expression(dim=1, max_depth=3)
-    items = build_multiturn_items([e], _cfg())
-    assert len(items) == 1
+    # 随机表达式可能因取不到合理假设被跳过（文档化的省略行为），故重试若干次取一个可出样本的
+    items = None
+    for _ in range(100):
+        cand = expressions.random_expression(dim=1, max_depth=3)
+        res = build_multiturn_items([cand], _cfg())
+        if len(res) == 1:
+            items = res
+            break
+    assert items is not None and len(items) == 1, "应能在重试内取到一个可出样本的表达式"
     conv = items[0]["conversations"]
     assert len(conv) == 4
     assert conv[0]["from"] == "human"
@@ -33,10 +39,16 @@ def test_multiturn_four_segments_and_converges():
 
 def test_hypothesis_is_near_miss_quality_band():
     # 中间假设应"严格劣于目标（修正有意义）且具一定解释力（非乱猜）"
-    e = expressions.random_expression(dim=1, max_depth=3)
+    e = None
+    items = None
     cfg = _cfg()
-    items = build_multiturn_items([e], cfg)
-    assert len(items) == 1
+    for _ in range(100):
+        cand = expressions.random_expression(dim=1, max_depth=3)
+        res = build_multiturn_items([cand], cfg)
+        if len(res) == 1:
+            e, items = cand, res
+            break
+    assert items is not None and len(items) == 1, "应能在重试内取到一个可出样本的表达式"
     conv = items[0]["conversations"]
     hypo = _extract_hypo(conv)
     assert hypo is not None and hypo != conv[3]["value"]
