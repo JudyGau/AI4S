@@ -10,6 +10,7 @@ class GenerationConfig:
     sft: bool = True
     grpo: bool = True
     dpo: bool = True
+    multiturn: bool = False    # 综合多轮链（problem->分析->反馈->最终表达式）
 
     # 规模
     n: int = 100                 # 每个范式生成的目标样本数（按表达式计数）

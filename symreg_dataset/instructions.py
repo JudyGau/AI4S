@@ -43,6 +43,28 @@ GRPO_TEMPLATES = [
 
 DPO_TEMPLATES = SFT_TEMPLATES  # DPO 复用 SFT 指令
 
+# ---------------------------- 多轮对话 ----------------------------
+# 综合分析链：首轮 分析+中间假设 -> 反馈 -> 收敛到最终表达式
+REASON_PHRASES = [
+    "明显的周期/振荡（含三角函数）",
+    "幂函数或多项式趋势",
+    "指数增长/衰减",
+    "含三角函数与幂的组合",
+    "带对数/平方根的非线性",
+]
+
+ANALYSIS_TEMPLATES = [
+    "我先对数据做初步分析：整体更像是{reason}。基于此，先给出一个候选表达式 f1 = {hypo}，作为第一轮假设。",
+    "初步观察，数据大致呈{reason}特征。我先抛出一个中间候选 f1 = {hypo}，供后续修正。",
+    "就数据形态而言更接近{reason}。我先生成一个试探性表达式 f1 = {hypo}，后续可进一步校正。",
+]
+
+FEEDBACK_TEMPLATES = [
+    "候选 f1 在若干数据点上拟合仍偏离，未能充分捕捉整体趋势。请在综合全部数据点后，给出更准确、更简洁的**最终**表达式 f = ...",
+    "初步假设还不够贴合数据，尤其在中段取值范围误差明显。请直接给出收敛后的**最终**表达式 f = ...",
+    "这个 f1 离目标函数还有差距。请修正系数和算子，输出最符合数据规律的**最终**表达式 f = ...",
+]
+
 
 def _var_names(dim: int) -> str:
     return "x" if dim == 1 else ", ".join(f"x{i + 1}" for i in range(dim))
@@ -67,3 +89,15 @@ def sft_instruction(rows: Sequence[DataGroup], dim: int,
 def grpo_instruction(rows: Sequence[DataGroup], dim: int,
                      rng: random.Random, precision: int = 2) -> str:
     return make_instruction(GRPO_TEMPLATES, rows, dim, rng, precision)
+
+
+def analysis_and_hypothesis(hypo_txt: str, rng: random.Random) -> str:
+    """综合多轮链的第 1 轮回复：定性分析 + 中间假设 f1。"""
+    reason = rng.choice(REASON_PHRASES)
+    tmpl = rng.choice(ANALYSIS_TEMPLATES)
+    return tmpl.format(reason=reason, hypo=hypo_txt)
+
+
+def feedback_turn(rng: random.Random) -> str:
+    """综合多轮链的第 2 轮人机反馈：督促修正到最终表达式。"""
+    return rng.choice(FEEDBACK_TEMPLATES)

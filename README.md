@@ -3,10 +3,11 @@
 用于为**符号回归（symbolic regression）**基座大模型生成后训练数据集的 Python 工具。
 方法对齐 **SymbArena / Symbolic-R1（arXiv:2508.09897）**。
 
-覆盖三种训练范式，统一输出 **JSONL**：
+覆盖四种训练范式，统一输出 **JSONL**：
 - **SFT** 监督微调：`instruction -> 目标表达式`
 - **Form-GRPO** 强化学习：问题式输入 + reference/data（供奖励函数打分）
 - **DPO** 偏好对齐：同一指令下 `chosen`（正确）/ `rejected`（扰动负样本）
+- **多轮（multiturn）** 综合分析链：`分析+中间假设 -> 反馈 -> 收敛到正确表达式`
 
 ## 特性
 - 树式随机生成一/多元数学表达式（SymPy），支持算子/终结符结构约束。
@@ -29,9 +30,12 @@ python -m scripts.generate --n 100 --dim 1
 
 # 仅 SFT + DPO，2 变量，带噪声，输出到 data/
 python -m scripts.generate --sft --dpo --n 500 --dim 2 --noise 0.05 --out data
+
+# 仅多轮综合分析链
+python -m scripts.generate --multiturn --n 300
 ```
 
-输出文件：`data/{sft,grpo,dpo}_{train,test}.jsonl`
+输出文件：`data/{sft,grpo,dpo,multiturn}_{train,test}.jsonl`
 
 > 生成脚本的完整参数说明、输出格式、质量过滤与训练衔接详见 **[docs/generate.md](docs/generate.md)**。
 

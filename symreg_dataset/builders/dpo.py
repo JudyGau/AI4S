@@ -21,11 +21,15 @@ def _outs(expr, cfg: GenerationConfig) -> str:
     return expr_text(expr, cfg.precision)
 
 
-def _perturb(expr: sp.Expr, rng: random.Random) -> sp.Expr:
-    """生成扰动负样本：随机改一个系数，或对子表达式换算子/换符号。"""
+def _perturb(expr: sp.Expr, rng: random.Random, keep_close: bool = False) -> sp.Expr:
+    """生成扰动负样本：随机改系数，或对子表达式换算子/换符号。
+
+    keep_close=True：仅保留结构近邻的改动（改系数/换算子，必要时整体小幅缩放/平移），
+    用于多轮链的"中间假设"（看似合理但不完美）；否则额外加入整体 -expr 翻转这类硬负样本（供 DPO）。
+    """
     candidates: list[sp.Expr] = []
 
-    # 1) 改系数：给某个数值常数加一个小扰动
+    # 1) 改系数：给某个数值常数加一个小扰动（近邻改动）
     numbers = sorted((n for n in expr.atoms(sp.Number) if n not in (sp.Integer(0), sp.Integer(1))),
                      key=lambda n: str(float(n)))
     if numbers:
@@ -37,7 +41,7 @@ def _perturb(expr: sp.Expr, rng: random.Random) -> sp.Expr:
         except Exception:
             pass
 
-    # 2) 换一元算子：sin <-> cos，exp <-> sin 等
+    # 2) 换一元算子：sin <-> cos，exp <-> sin 等（近邻改动）
     replacements = [("sin", "cos"), ("cos", "sin"), ("exp", "sin"), ("log", "cos")]
     s = str(expr)
     for a, b in replacements:
@@ -45,8 +49,17 @@ def _perturb(expr: sp.Expr, rng: random.Random) -> sp.Expr:
             candidates.append(sp.sympify(s.replace(a, b, 1)))
             break
 
-    # 3) 符号翻转：给整体乘 -1
-    candidates.append(-expr)
+    if not candidates:
+        if keep_close:
+            # 既无系数可改也无算子可换：整体小幅缩放/平移，仍属近邻
+            try:
+                if rng.random() < 0.5:
+                    return sp.Float(round(rng.uniform(0.5, 1.5), 2)) * expr
+                return expr + sp.Float(rng.choice([-0.3, 0.3, 0.7, -0.7]))
+            except Exception:
+                return -expr  # 极端兜底
+        # 3) 符号翻转：整体乘 -1（硬负样本，仅非近邻模式）
+        candidates.append(-expr)
 
     return rng.choice(candidates)
 

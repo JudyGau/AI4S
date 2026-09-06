@@ -48,3 +48,15 @@ def make_grpo_item(problem: str, reference_expr: sp.Expr, data: dict,
         "reference": expr_text(reference_expr),
         "data": data,
     }
+
+
+def make_multiturn_item(conversations: list[dict], reference: dict | None = None,
+                        system: str = "") -> dict:
+    """综合多轮链：problem -> 分析+假设 -> 反馈 -> 最终表达式（4 段对话）。"""
+    item = {
+        "system": system,
+        "conversations": conversations,
+    }
+    if reference:
+        item["reference"] = reference
+    return item

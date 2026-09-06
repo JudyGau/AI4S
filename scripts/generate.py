@@ -15,7 +15,7 @@ import sympy as sp
 from symreg_dataset.config import GenerationConfig
 from symreg_dataset import expressions, quality, sampling, real_lib
 from symreg_dataset.builders import (
-    build_sft_items, build_grpo_items, build_dpo_items,
+    build_sft_items, build_grpo_items, build_dpo_items, build_multiturn_items,
 )
 from symreg_dataset.writers import save_jsonl
 from symreg_dataset.utils import expr_text
@@ -80,6 +80,9 @@ def build_all(train, test, cfg: GenerationConfig):
     if cfg.dpo:
         out["dpo_train"] = build_dpo_items(train, cfg)
         out["dpo_test"] = build_dpo_items(test, cfg, seed=1)
+    if cfg.multiturn:
+        out["multiturn_train"] = build_multiturn_items(train, cfg)
+        out["multiturn_test"] = build_multiturn_items(test, cfg, seed=1)
     return out
 
 
@@ -88,6 +91,7 @@ def main(argv=None):
     p.add_argument("--sft", action="store_true", dest="sft_set")
     p.add_argument("--grpo", action="store_true", dest="grpo_set")
     p.add_argument("--dpo", action="store_true", dest="dpo_set")
+    p.add_argument("--multiturn", action="store_true", dest="multiturn_set")
     p.add_argument("--n", type=int, default=100)
     p.add_argument("--dim", type=int, default=1)
     p.add_argument("--max-depth", type=int, default=4)
@@ -104,9 +108,10 @@ def main(argv=None):
     args = p.parse_args(argv)
 
     cfg = GenerationConfig(
-        sft=args.sft_set or not (args.grpo_set or args.dpo_set),
+        sft=args.sft_set or not (args.grpo_set or args.dpo_set or args.multiturn_set),
         grpo=args.grpo_set,
         dpo=args.dpo_set,
+        multiturn=args.multiturn_set,
         n=args.n, dim=args.dim, max_depth=args.max_depth,
         dom=args.dom, dist=args.dist, group=args.group,
         n_per_group=args.n_per_group, noise=args.noise,
